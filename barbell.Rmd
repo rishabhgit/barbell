@@ -1,0 +1,104 @@
+---
+title: "barbell.Rmd"
+output: html_document
+---
+
+Load libraries for processing and visualisation
+```{r, echo=FALSE}
+library(caret)
+library(ggplot2)
+library(colorspace)
+library(corrgram)
+library(randomForest)
+```
+
+## Data Cleansing
+
+Load the data files
+```{r,cache=TRUE}
+setwd("~/Study/R_files")
+barbellTrain <- read.csv(file= "./barbell_lift/pml-training.csv", head=TRUE, sep=",", na.strings= c("NA","#DIV/0!" ))
+
+barbellTest <- read.csv(file= "./barbell_lift/pml-testing.csv", head=TRUE, sep=",", na.strings= c("NA","#DIV/0!" ))
+```
+
+Clean the Data
+```{r}
+
+badcols <- apply(barbellTrain,2, function(x) {anyNA(x)})
+cleanTrain <- barbellTrain[,!badcols]
+# Remove columns related to timestamps and usernames, and window information
+cleanTrain <- cleanTrain[,-c(1,2,3,4,5,6,7)]
+cleanTest <- barbellTest[,!badcols]
+cleanTest <- cleanTest[,-c(1,2,3,4,5,6,7)]
+```
+
+## Cross Validation Technique
+
+For cross-validation, the data was split into two parts, one each for training and testing. 75% of the data was used to train the prediction model, while the remianing 25% was used to test the performance of the model and calculate the out-of-sample error rate.
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(y=cleanTrain$classe,
+                              p=0.75, list=FALSE)
+training <- cleanTrain[inTrain,]
+testing <- cleanTrain[-inTrain,]
+
+```
+
+## Data Pre-processing
+Remove highly correlated variables
+```{r}
+cm <- abs(cor(training[,-53]))
+diag(cm)<- 0
+which (cm>0.8, arr.ind=TRUE)
+
+# The analysis of correlation matrix indicates the removal of following variables
+smallTrain <- training[, -which(names(training) %in% c("yaw_belt", "total_accel_belt", "accel_belt_y", "accel_belt_z", "accel_belt_x", "magnet_belt_x", "magnet_belt_y", "gyros_arm_x", "accel_arm_x", "magnet_arm_y", "accel_dumbbell_x", "accel_dumbbell_z", "gyros_forearm_y", "gyros_dumbbell_x", "gyros_dumbbell_z"))]
+
+smallTest <- testing[, -which(names(training) %in% c("yaw_belt", "total_accel_belt", "accel_belt_y", "accel_belt_z", "accel_belt_x", "magnet_belt_x", "magnet_belt_y", "gyros_arm_x", "accel_arm_x", "magnet_arm_y", "accel_dumbbell_x", "accel_dumbbell_z", "gyros_forearm_y", "gyros_dumbbell_x", "gyros_dumbbell_z"))]
+
+cleanTest <- cleanTest[, -which(names(cleanTest) %in% c("yaw_belt", "total_accel_belt", "accel_belt_y", "accel_belt_z", "accel_belt_x", "magnet_belt_x", "magnet_belt_y", "gyros_arm_x", "accel_arm_x", "magnet_arm_y", "accel_dumbbell_x", "accel_dumbbell_z", "gyros_forearm_y", "gyros_dumbbell_x", "gyros_dumbbell_z"))]
+```
+
+## Prediction Model Building
+
+The data is not suitable for the application of a multivariate regression model as final tuninig parameters could not be determined.
+The next prediction model selected was a tree based model.
+
+```{r}
+modFit1 <- train(classe~., data=smallTrain, method="rpart")
+
+predTree <- predict(modFit1, newdata=smallTest)
+confusionMatrix(predTree,smallTest$classe)
+
+```
+
+Since a tree based prediction model provides only ~49% accuracy, we build a prediction model using Random Forest
+
+```{r, cache=TRUE}
+modFit2 <- train(classe~., data=smallTrain, method="rf")
+
+predForest <- predict(modFit2, newdata=smallTest)
+confusionMatrix(predForest,smallTest$classe)
+
+```
+
+The Random forest based model yields an out-of-sample prediction accuracy of 99.2%. 
+Now we find out the variables with the most predictive power
+
+```{r}
+impVars <- varImp(modFit2)
+plot(impVars, top=10, main="Top 10 variables with most predictive power")
+
+```
+
+## Predict Class for Test data set
+
+```{r}
+outcome <- predict(modFit2, newdata=cleanTest)
+outcome
+```
+
+## Conclusion
+
+Random Forest is identified as the most suitable method for predicting the outcome "classe" with an accuracy of 99.2%
